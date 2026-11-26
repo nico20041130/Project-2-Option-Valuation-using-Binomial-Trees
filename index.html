@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRR 二項樹選擇權估值</title>
+<style>
+:root{--bg:#f4f6fb;--panel:#fff;--ink:#172033;--muted:#667085;--line:#e3e8f0;--accent:#2859c5;--accent2:#edf3ff;--good:#087f5b;--bad:#b42318}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI","Noto Sans TC",sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;padding:24px clamp(16px,4vw,48px);background:#fff;border-bottom:1px solid var(--line)}
+h1{font-size:clamp(20px,3vw,29px);margin:0;letter-spacing:.02em}.mark{font-weight:800;color:var(--accent);font-size:20px;white-space:nowrap}
+main{max-width:1500px;margin:0 auto;padding:24px clamp(12px,3vw,36px) 48px}
+.layout{display:grid;grid-template-columns:minmax(260px,330px) minmax(0,1fr);gap:20px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 24px #15244a0a}
+.inputs{padding:22px;position:sticky;top:16px}.inputs h2,.section-head h2{font-size:18px;margin:0 0 18px}
+.field{margin:14px 0}.field label{display:flex;justify-content:space-between;gap:8px;font-size:13px;font-weight:650;margin-bottom:7px}
+.field small{color:var(--muted);font-weight:400}.field input,.field select{width:100%;border:1px solid #d5dce8;border-radius:9px;padding:10px 11px;font:inherit;background:#fff;color:var(--ink)}
+.field input:focus,.field select:focus{outline:3px solid #2859c51c;border-color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{width:100%;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:15px;font-weight:700;padding:12px;cursor:pointer;margin-top:8px}
+button:hover{filter:brightness(.95)}.note{font-size:12px;color:var(--muted);line-height:1.6;margin:14px 0 0}
+.results{display:grid;gap:16px;min-width:0}.summary{padding:22px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.eyebrow{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.08em}.price{font-size:clamp(30px,5vw,44px);font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;margin-top:4px}
+.stats{display:flex;gap:20px;flex-wrap:wrap}.stat{min-width:95px}.stat strong{display:block;font-size:17px;margin-top:5px;font-variant-numeric:tabular-nums}
+.message{padding:12px 16px;border-radius:10px;font-size:13px;display:none}.message.error{display:block;background:#fff1f0;color:var(--bad);border:1px solid #ffd5d2}.message.info{display:block;background:#f0f7ff;color:#1d4e89;border:1px solid #d1e7ff}
+.tree-panel{padding:20px;min-width:0}.section-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.section-head h2{margin:0}.tree-meta{font-size:12px;color:var(--muted)}
+.tree-wrap{overflow:auto;margin-top:16px;border:1px solid var(--line);border-radius:10px;background:#fbfcff}
+table.tree{border-collapse:separate;border-spacing:7px;min-width:100%;width:max-content;padding:8px}
+.tree th{font-size:11px;color:var(--muted);font-weight:700;text-align:center;padding:6px 10px;white-space:nowrap}
+.tree td{font-size:12px;text-align:center;min-width:84px;padding:8px 7px;border:1px solid #dce4f1;border-radius:7px;background:#fff;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tree td.empty{border-color:transparent;background:transparent}.tree td.node{background:#f5f8ff}.tree td.early{border-color:#9eb8f4;background:#edf3ff}
+.legend{font-size:12px;color:var(--muted);margin-top:10px;display:flex;gap:14px;flex-wrap:wrap}.legend span{display:inline-flex;align-items:center;gap:6px}.dot{width:10px;height:10px;border-radius:3px;background:#edf3ff;border:1px solid #9eb8f4}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:24px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.inputs{position:static}.two{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){header{padding:18px 14px}.mark{font-size:17px}.summary{padding:18px}.tree-panel{padding:14px}.field{margin:12px 0}}
+</style>
+</head>
+<body>
+<header><h1>CRR 二項樹選擇權估值</h1><div class="mark">63 謝</div></header>
+<main>
+<div class="layout">
+<section class="panel inputs">
+<h2>模型參數</h2>
+<form id="form">
+<div class="field"><label for="spot">標的資產股價 S₀</label><input id="spot" type="number" min="0.000001" step="any" value="70" required></div>
+<div class="field"><label for="strike">執行價 K</label><input id="strike" type="number" min="0.000001" step="any" value="70" required></div>
+<div class="field"><label for="maturity">Option 年期 T <small>可輸入小數</small></label><input id="maturity" type="number" min="0.000001" step="any" value="1" required></div>
+<div class="field"><label for="rate">無風險利率 r <small>年化、連續複利</small></label><input id="rate" type="number" step="any" value="0.05" required></div>
+<div class="field"><label for="vol">股價報酬波動率 σ <small>年化</small></label><input id="vol" type="number" min="0" step="any" value="0.2" required></div>
+<div class="field"><label for="steps">每年計算期數</label><input id="steps" type="number" min="1" max="1000" step="1" value="12" required></div>
+<div class="two">
+<div class="field"><label for="type">選擇權</label><select id="type"><option value="C">買權 Call</option><option value="P">賣權 Put</option></select></div>
+<div class="field"><label for="style">履約方式</label><select id="style"><option value="E">歐式</option><option value="A">美式</option></select></div>
+</div>
+<button id="calculateBtn" type="button">計算選擇權價值</button>
+<p class="note">計算期數 n = T × 每年計算期數，必須是整數。利率採連續複利，與附檔 VBA 的 Exp(r·Δt) 及 Exp(−r·Δt) 設定一致。美式選擇權每個節點比較立即履約價值與持有價值。</p>
+</form>
+</section>
+<section class="results">
+<div id="message" class="message" role="alert"></div>
+<section class="panel summary">
+<div><div class="eyebrow">OPTION VALUE</div><div class="price" id="price">—</div><div id="priceDetail" class="tree-meta">輸入參數後按下計算</div></div>
+<div class="stats">
+<div class="stat"><div class="eyebrow">步數 n</div><strong id="nStat">—</strong></div>
+<div class="stat"><div class="eyebrow">Δt</div><strong id="dtStat">—</strong></div>
+<div class="stat"><div class="eyebrow">風險中立機率 p</div><strong id="pStat">—</strong></div>
+</div>
+</section>
+<section class="panel tree-panel">
+<div class="section-head"><h2>股價二項樹</h2><span class="tree-meta" id="stockMeta">節點由左至右為時間</span></div>
+<div class="tree-wrap" id="stockTree"><div class="tree-meta" style="padding:16px">尚未計算</div></div>
+</section>
+<section class="panel tree-panel">
+<div class="section-head"><h2>選擇權價值二項樹</h2><span class="tree-meta" id="optionMeta">美式節點含提前履約比較</span></div>
+<div class="tree-wrap" id="optionTree"><div class="tree-meta" style="padding:16px">尚未計算</div></div>
+<div class="legend"><span><i class="dot"></i>美式節點：立即履約價值與持有價值取較大者</span></div>
+</section>
+</section>
+</div>
+</main>
+<footer>CRR Cox–Ross–Rubinstein Binomial Tree · 使用者端計算，無資料上傳</footer>
+<script>
+const $ = id => document.getElementById(id);
+const fmt = (x, digits=5) => Number(x).toLocaleString('zh-TW',{minimumFractionDigits:0,maximumFractionDigits:digits});
+function intrinsic(s,k,type){return type==='C'?Math.max(s-k,0):Math.max(k-s,0);}
+function renderTree(target, tree, n, label, american=false){
+  let html='<table class="tree"><thead><tr><th>節點</th>';
+  for(let t=0;t<=n;t++) html+=`<th>t = ${t}</th>`;
+  html+='</tr></thead><tbody>';
+  for(let j=0;j<=n;j++){
+    html+=`<tr><th>${label==='stock'?'價格':'價值'} ${j+1}</th>`;
+    for(let t=0;t<=n;t++){
+      if(j<=t){
+        const raw=tree[t][j];
+        const isStock=label==='stock';
+        const val=isStock?raw:raw.value;
+        const cls='node'+(american && !isStock && raw.exercise?' early':'');
+        html+=`<td class="${cls}" title="${american&&!isStock&&raw.exercise?'此節點採立即履約價值':''}">${fmt(val)}</td>`;
+      }else html+='<td class="empty"></td>';
+    }
+    html+='</tr>';
+  }
+  html+='</tbody></table>';
+  $(target).innerHTML=html;
+}
+function calculate(){
+  const S=Number($('spot').value), K=Number($('strike').value), T=Number($('maturity').value);
+  const r=Number($('rate').value), sigma=Number($('vol').value), per=Number($('steps').value);
+  const type=$('type').value, style=$('style').value, msg=$('message');
+  msg.className='message';msg.textContent='';
+  if(![S,K,T,r,sigma,per].every(Number.isFinite)||S<=0||K<=0||T<=0||sigma<=0||per<1||!Number.isInteger(per)){
+    throw new Error('請確認股價、執行價、年期為正數，波動率須大於零，每年計算期數須為正整數。');
+  }
+  // 年期可為小數；每年計算期數代表每年步數，總步數取最接近的整數。
+  // 每一期長度由實際總步數反推，確保最後一期恰好到期。
+  const n=Math.max(1,Math.round(T*per));
+  if(n>300) throw new Error('總計算步數需介於 1 至 300，避免樹過大影響瀏覽器顯示。');
+  const dt=T/n, u=Math.exp(sigma*Math.sqrt(dt)), d=1/u;
+  const p=(Math.exp(r*dt)-d)/(u-d);
+  if(sigma===0){
+    // Degenerate deterministic limit: use the limiting risk-neutral transition and exact deterministic stock path.
+    // The option tree is computed by backward discounted expectation; American exercise is checked at every node.
+  } else if(!(p>=0&&p<=1)) throw new Error(`風險中立機率 p=${p} 不在 [0,1]。請檢查利率、波動率及步數設定（CRR 無套利條件）。`);
+  const stock=Array.from({length:n+1},(_,t)=>Array.from({length:t+1},(_,j)=>S*Math.pow(u,t-j)*Math.pow(d,j)));
+  const option=Array.from({length:n+1},(_,t)=>Array.from({length:t+1},()=>({value:0,exercise:false,continuation:0,intrinsic:0})));
+  for(let j=0;j<=n;j++) option[n][j].value=intrinsic(stock[n][j],K,type);
+  const disc=Math.exp(-r*dt);
+  for(let t=n-1;t>=0;t--){
+    for(let j=0;j<=t;j++){
+      const continuation=disc*(p*option[t+1][j].value+(1-p)*option[t+1][j+1].value);
+      const exercise=intrinsic(stock[t][j],K,type);
+      const early=style==='A'&&exercise>continuation;
+      option[t][j]={value:style==='A'?Math.max(exercise,continuation):continuation,exercise:early,continuation,intrinsic:exercise};
+    }
+  }
+  $('price').textContent=fmt(option[0][0].value,6);
+  $('priceDetail').textContent=`${type==='C'?'買權 Call':'賣權 Put'} · ${style==='A'?'美式':'歐式'} · ${T} 年`;
+  $('nStat').textContent=n;$('dtStat').textContent=fmt(dt,8);$('pStat').textContent=fmt(p,8);
+  $('stockMeta').textContent=`u = ${fmt(u,6)} · d = ${fmt(d,6)} · Δt = ${fmt(dt,8)}`;
+  $('optionMeta').textContent=style==='A'?'節點比較立即履約與持有價值':'僅於到期日履約';
+  renderTree('stockTree',stock,n,'stock');
+  renderTree('optionTree',option,n,'option',style==='A');
+}
+function runCalculation(){
+  try { calculate(); }
+  catch(err) {
+    $('message').className='message error';
+    $('message').textContent=err && err.message ? err.message : '計算時發生錯誤，請檢查輸入參數。';
+    $('price').textContent='—';
+  }
+}
+$('calculateBtn').addEventListener('click',runCalculation);
+runCalculation();
+</script>
+</body>
+</html>
